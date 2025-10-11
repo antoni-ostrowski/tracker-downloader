@@ -8,5 +8,9 @@
   },
   "peerDependencies": {
     "typescript": "^5"
+  },
+  "dependencies": {
+    "csv-parse": "^6.1.0",
+    "p-limit": "^7.1.1"
   }
 }
