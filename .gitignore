@@ -1,34 +1,25 @@
-# dependencies (bun install)
-node_modules
+# Binaries for programs and plugins
+*.exe
+*.exe~
+*.dll
+*.so
+*.dylib
 
-# output
-out
-dist
-*.tgz
+# Test binary, built with `go test -c`
+*.test
 
-# code coverage
-coverage
-*.lcov
+# Output of the go build command
+# If you name your binary specifically, add it here
+my-project
 
-# logs
-logs
-_.log
-report.[0-9]_.[0-9]_.[0-9]_.[0-9]_.json
-
-# dotenv environment variable files
+# Project-local development Go environment files
 .env
-.env.development.local
-.env.test.local
-.env.production.local
-.env.local
 
-# caches
-.eslintcache
-.cache
-*.tsbuildinfo
+# Dependency directories 
+# (Go manages these via go.mod, so you don't usually need the vendor folder)
+vendor/
 
-# IntelliJ based IDEs
-.idea
-
-# Finder (MacOS) folder config
-.DS_Store
+# IDE specific files
+.vscode/
+.idea/
+*.swp
