@@ -3,12 +3,17 @@ package main
 import (
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
+	"net/http"
 	"os"
+	"path"
 	"strings"
 
 	"github.com/gocarina/gocsv"
 )
+
+const outputDir = "./test-music"
 
 type Track struct {
 	Era            string `csv:"Era"`
@@ -65,6 +70,55 @@ func main() {
 		data, _ := json.MarshalIndent(track, "", "  ")
 		fmt.Println(string(data))
 		fmt.Printf("\n")
+
+		for _, link := range links {
+			downloadLink := createDownloadUrl(link)
+			if len(downloadLink) == 0 {
+				log.Fatalf("No download link found")
+				continue
+			}
+
+			resp, err := http.Get(downloadLink)
+			if err != nil {
+				log.Fatalf("Failed to request the download link %v", err)
+				continue
+			}
+
+			outFile, err := os.Create(path.Join(outputDir, track.Name+".mp3"))
+			if err != nil {
+				log.Fatalf("Failed to create out file %v", err)
+				continue
+			}
+
+			_, err = io.Copy(outFile, resp.Body)
+			if err != nil {
+				log.Fatalf("Failed to copy the file from body to out file somehow %v", err)
+				continue
+			}
+
+			// close after everything
+			// no defer because we are inside loop
+			resp.Body.Close()
+			outFile.Close()
+
+		}
+
 	}
+
+}
+
+func createDownloadUrl(link string) string {
+	var trackId string
+	if len(link) >= 32 {
+		trackId = link[len(link)-32:]
+		fmt.Println(trackId)
+	} else {
+		return ""
+	}
+
+	const baseApiUrl = "https://api.pillows.su"
+	downloadLink := baseApiUrl + "/api/download/" + trackId
+	fmt.Printf("download link? %v \n", downloadLink)
+	return downloadLink
 
 }
