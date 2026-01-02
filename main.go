@@ -62,9 +62,29 @@ func main() {
 
 		track.Name = strings.ReplaceAll(track.Name, "\n", " ")
 
+		for _, item := range links {
+			createDownloadUrl(item)
+		}
+
 		data, _ := json.MarshalIndent(track, "", "  ")
 		fmt.Println(string(data))
 		fmt.Printf("\n")
 	}
+
+}
+
+func createDownloadUrl(link string) {
+	var trackId string
+	if len(link) >= 32 {
+		trackId = link[len(link)-32:]
+		fmt.Println(trackId)
+	} else {
+		return
+	}
+
+	const baseApiUrl = "https://api.pillows.su"
+	// downloadLink := `${baseApiUrl}/api/download/${id}`
+	downloadLink := baseApiUrl + "/api/download/" + trackId
+	fmt.Printf("download link? %v \n", downloadLink)
 
 }
