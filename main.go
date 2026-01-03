@@ -1,19 +1,19 @@
 package main
 
 import (
-	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"os"
 	"path"
+	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/gocarina/gocsv"
 )
-
-const outputDir = "./test-music"
 
 type Track struct {
 	Era            string `csv:"Era"`
@@ -27,12 +27,33 @@ type Track struct {
 	FirstPreview   string `csv:"First Preview"`
 	LeakDate       string `csv:"Leak Date"`
 	OGFileLeakDate string `csv:"OG File Leak Date"`
+	RealLinks      []string
+	OutputFilePath string
 }
 
 func main() {
-	log.Print("starting")
+	if len(os.Args) < 4 {
+		fmt.Println("Usage: ./my-program <output-directory> <tracker-csv-path> <worker-count>")
+		fmt.Println("Example: ./my-program ./test-music /Users/antoni-ostrowski/Desktop/yeat-tracker.csv 20")
+		return
+	}
 
-	tracksFile, err := os.OpenFile("/Users/antoni-ostrowski/Desktop/yeat-tracker.csv", os.O_RDWR|os.O_CREATE, os.ModePerm)
+	outputDir := os.Args[1]
+	trackerPath := os.Args[2]
+	workerCount, workerCountErr := strconv.Atoi(os.Args[3])
+	if workerCountErr != nil {
+		log.Println("Invalid worker count integer")
+		return
+	}
+
+	log.Printf("Starting downloader. Output directory set to: %s\n tracker path set to: %v\n worker count set to: %v\n", outputDir, trackerPath, workerCount)
+
+	err := os.MkdirAll(outputDir, 0755)
+	if err != nil {
+		log.Fatalf("Failed to create output dir %v", err)
+	}
+
+	tracksFile, err := os.OpenFile(trackerPath, os.O_RDWR|os.O_CREATE, os.ModePerm)
 	if err != nil {
 		log.Fatal("failed to open csv file")
 		panic(err)
@@ -42,68 +63,77 @@ func main() {
 
 	defer tracksFile.Close()
 
-	allRows := []*Track{}
+	allRows := []Track{}
 
-	if err := gocsv.UnmarshalFile(tracksFile, &allRows); err != nil { // Load clients from file
+	if err := gocsv.UnmarshalFile(tracksFile, &allRows); err != nil {
 		log.Fatalf("Failed to unmarshal %v", err)
 		panic(err)
 	}
 
+	tracksCh := make(chan Track)
+	var processWg sync.WaitGroup
+
+	// start workers
+	for i := range workerCount {
+		processWg.Add(1)
+
+		go func(id int) {
+			defer processWg.Done()
+
+			for track := range tracksCh {
+				log.Printf("[WORKER %v] processing %v \n", id, track.Name)
+
+				for _, link := range track.RealLinks {
+
+					if _, err := os.Stat(track.OutputFilePath); err == nil {
+						log.Printf("[WORKER %v] File %s already exists, skipping...", id, track.Name)
+						continue
+					}
+
+					downloadLink := createDownloadUrl(link)
+					if len(downloadLink) == 0 {
+						log.Printf("[WORKER %v] No download link found", id)
+						continue
+					}
+
+					log.Printf("[WORKER %v] attempting to download %v \n", id, downloadLink)
+
+					err := downloadFile(downloadLink, track.OutputFilePath)
+					if err != nil {
+						log.Printf("Failed to download file %v", err)
+						continue
+					}
+
+					log.Printf("[WORKER %v] successfully downloaded %v \n", id, track.Name)
+
+				}
+
+			}
+
+		}(i)
+
+	}
+
+	// filter junk, then feed the channel
 	for _, track := range allRows {
-		if strings.EqualFold(strings.TrimSpace(track.Links), "Source Needed") {
-			continue
-		}
 
-		links := strings.Fields(track.Links)
-
+		links := getTracksLinks(track)
 		if len(links) == 0 {
 			continue
 		}
 
-		fmt.Printf("Found %d links\n", len(links))
-		for i, link := range links {
-			fmt.Printf("%d: %s\n", i+1, link)
-		}
+		track.OutputFilePath = path.Join(outputDir, track.Name+".mp3")
+
+		track.RealLinks = links
 
 		track.Name = strings.ReplaceAll(track.Name, "\n", " ")
 
-		data, _ := json.MarshalIndent(track, "", "  ")
-		fmt.Println(string(data))
-		fmt.Printf("\n")
-
-		for _, link := range links {
-			downloadLink := createDownloadUrl(link)
-			if len(downloadLink) == 0 {
-				log.Fatalf("No download link found")
-				continue
-			}
-
-			resp, err := http.Get(downloadLink)
-			if err != nil {
-				log.Fatalf("Failed to request the download link %v", err)
-				continue
-			}
-
-			outFile, err := os.Create(path.Join(outputDir, track.Name+".mp3"))
-			if err != nil {
-				log.Fatalf("Failed to create out file %v", err)
-				continue
-			}
-
-			_, err = io.Copy(outFile, resp.Body)
-			if err != nil {
-				log.Fatalf("Failed to copy the file from body to out file somehow %v", err)
-				continue
-			}
-
-			// close after everything
-			// no defer because we are inside loop
-			resp.Body.Close()
-			outFile.Close()
-
-		}
-
+		tracksCh <- track
 	}
+
+	close(tracksCh)
+
+	processWg.Wait()
 
 }
 
@@ -111,14 +141,45 @@ func createDownloadUrl(link string) string {
 	var trackId string
 	if len(link) >= 32 {
 		trackId = link[len(link)-32:]
-		fmt.Println(trackId)
 	} else {
 		return ""
 	}
 
 	const baseApiUrl = "https://api.pillows.su"
 	downloadLink := baseApiUrl + "/api/download/" + trackId
-	fmt.Printf("download link? %v \n", downloadLink)
 	return downloadLink
+}
+
+func getTracksLinks(track Track) []string {
+	if strings.EqualFold(strings.TrimSpace(track.Links), "Source Needed") {
+		return []string{}
+	}
+
+	links := strings.Fields(track.Links)
+
+	return links
+}
+
+func downloadFile(downloadLink string, filePath string) error {
+
+	resp, err := http.Get(downloadLink)
+	if err != nil {
+		return errors.New("Failed to request the download link %v")
+	}
+
+	defer resp.Body.Close()
+
+	outFile, err := os.Create(filePath)
+	if err != nil {
+		return errors.New("Failed to create out file %v")
+	}
+	defer outFile.Close()
+
+	_, err = io.Copy(outFile, resp.Body)
+	if err != nil {
+		return errors.New("Failed to copy the file from body to out file somehow %v")
+	}
+
+	return nil
 
 }
