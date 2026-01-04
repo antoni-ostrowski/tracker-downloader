@@ -160,7 +160,9 @@ func main() {
 
 		track.Name = strings.ReplaceAll(track.Name, "\n", " ")
 
-		tracksCh <- track
+		trackCopy := track
+		tracksCh <- trackCopy
+
 	}
 
 	close(tracksCh)
@@ -249,7 +251,9 @@ func downloadFile(downloadLink string, track Track, outputDir string) (string, e
 
 	if strings.HasSuffix(finalName, ".mp4") {
 		err := processVideoToAudio(finalName)
-		if err != nil {
+		if err == nil {
+			finalName = strings.TrimSuffix(finalName, ".mp4") + ".mp3"
+		} else {
 			fmt.Println("Error:", err)
 		}
 	}
@@ -260,111 +264,72 @@ func downloadFile(downloadLink string, track Track, outputDir string) (string, e
 
 func getImageForTrack(track Track, base string) []byte {
 	var imagePath string
-
 	era := strings.TrimSpace(track.Era)
 
-	switch {
-	case strings.Contains(era, "530"):
+	switch era {
+	case "530":
 		imagePath = base + "530.png"
-
-	case strings.Contains(era, "1500"):
+	case "1500":
 		imagePath = base + "1500.jpg"
-
-	case strings.Contains(era, "Super Sonic"):
+	case "Super Sonic":
 		imagePath = base + "super-sonic.jpg"
-
-	case strings.Contains(era, "Deep Blue $trips"):
+	case "Deep Blue $trips":
 		imagePath = base + "deep-blue-strips.jpg"
-
-	case strings.Contains(era, "Wake Up Call"):
+	case "Wake Up Call":
 		imagePath = base + "wake-up-call.jpg"
-
-	case strings.Contains(era, "Elegance"):
+	case "Elegance":
 		imagePath = base + "elegance.jpg"
-
-	case strings.Contains(era, "Different Creature"):
+	case "Different Creature":
 		imagePath = base + "diff-creature.png"
-
-	case strings.Contains(era, "I'm So Me"):
+	case "I'm So Me":
 		imagePath = base + "im-so-me.png"
-
-	case strings.Contains(era, "We Us"):
+	case "We Us":
 		imagePath = base + "we-us.jpg"
-
-	case strings.Contains(era, "DC2"):
+	case "DC2":
 		imagePath = base + "diff-creature-2.jpg"
-
-	case strings.Contains(era, "Hold Ön"):
+	case "Hold Ön":
 		imagePath = base + "hold-on.jpg"
-
-	case strings.Contains(era, "Alivë"):
+	case "Alivë":
 		imagePath = base + "alive.png"
-
-	case strings.Contains(era, "4L with us"):
+	case "4L with us":
 		imagePath = base + "4l-with-us.png"
-
-	case strings.Contains(era, "4L"):
+	case "4L":
 		imagePath = base + "4l.png"
-
-	case strings.Contains(era, "Up 2 Më [V1]"):
+	case "Up 2 Më [V1]":
 		imagePath = base + "up2me1.jpg"
-
-	case strings.Contains(era, "Trëndi"):
+	case "Trëndi":
 		imagePath = base + "trendi.png"
-
-	case strings.Contains(era, "Up 2 Më [V3]"):
+	case "Up 2 Më [V3]":
 		imagePath = base + "up2me3.png"
-
-	case strings.Contains(era, "2 Alivë"):
+	case "2 Alivë":
 		imagePath = base + "2alive.jpg"
-
-	case strings.Contains(era, "Super geëky"):
+	case "Super geëky":
 		imagePath = base + "super-geeky.jpg"
-
-	case strings.Contains(era, "2 Alivë (Geëk Pack)"):
+	case "2 Alivë (Geëk Pack)":
 		imagePath = base + "2alive-geep-pack.jpg"
-
-	case strings.Contains(era, "Lyfë"):
+	case "Lyfë":
 		imagePath = base + "lyfe.jpg"
-
-	case strings.Contains(era, "AftërLyfe"):
+	case "AftërLyfe":
 		imagePath = base + "afterlyfe.jpg"
-
-	case strings.Contains(era, "AftërLyfe (Deluxe)"):
+	case "AftërLyfe (Deluxe)":
 		imagePath = base + "afterlyfe-deluxe.jpg"
-
-	case strings.Contains(era, "Lyfëstyle [V1]"):
+	case "Lyfëstyle [V1]":
 		imagePath = base + "lyfestyle1.jpg"
-
-	case strings.Contains(era, "2093"):
+	case "2093":
 		imagePath = base + "2093.png"
-
-	case strings.Contains(era, "LYFESTYLE [V2]"):
+	case "LYFESTYLE [V2]":
 		imagePath = base + "lyfestyle2.png"
-
-	case strings.Contains(era, "A DANGEROUS LYFE [V1]"):
-		imagePath = base + "adl.jpg"
-
-	case strings.Contains(era, "LYFESTYLE DIGITAL DELUXE"):
+	case "LYFESTYLE DIGITAL DELUXE":
 		imagePath = base + "lyfestyle2-deluxe.png"
-
-	case strings.Contains(era, "A DANGEROUS LYFE [V2]"):
-		imagePath = base + "adl.jpg"
-
-	case strings.Contains(era, "DANGEROUS SUMMER"):
+	case "DANGEROUS SUMMER":
 		imagePath = base + "ds.jpg"
-
-	case strings.Contains(era, "A DANGEROUS LYFE [V3]"):
+	// Grouped case for ADL versions
+	case "A DANGEROUS LYFE [V1]", "A DANGEROUS LYFE [V2]", "A DANGEROUS LYFE [V3]", "A DANGEROUS LYFE [V4]":
 		imagePath = base + "adl.jpg"
-
-	case strings.Contains(era, "A DANGEROUS LYFE [V4]"):
-		imagePath = base + "adl.jpg"
-
 	default:
 		imagePath = "assets/images/eras/default_yeat_tracker_cover.jpg"
 	}
 
-	// Reading the image file from the local path
 	imgData, err := os.ReadFile(imagePath)
 	if err != nil {
 		log.Printf("Warning: Could not read image for era %s at path %s: %v\n", era, imagePath, err)
