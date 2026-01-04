@@ -7,6 +7,7 @@ import (
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
 	"path"
 	"slices"
 	"strconv"
@@ -145,7 +146,6 @@ func main() {
 	}
 
 	// filter junk, then feed the channel
-
 	slices.Reverse(allRows)
 	for _, track := range allRows {
 
@@ -221,8 +221,16 @@ func downloadFile(downloadLink string, track Track, outputDir string) (string, e
 
 	if strings.Contains(contentType, "video/mp4") || strings.Contains(contentType, "audio/mp4") {
 		ext = ".mp4"
-	} else if strings.Contains(contentType, "audio/wav") {
+	} else if strings.Contains(contentType, "audio/x-m4a") || strings.Contains(contentType, "audio/m4a") {
+		ext = ".m4a"
+	} else if strings.Contains(contentType, "audio/wav") || strings.Contains(contentType, "audio/x-wav") {
 		ext = ".wav"
+	} else if strings.Contains(contentType, "audio/flac") || strings.Contains(contentType, "audio/x-flac") {
+		ext = ".flac"
+	} else if strings.Contains(contentType, "audio/mpeg") {
+		ext = ".mp3"
+	} else if strings.Contains(contentType, "audio/ogg") {
+		ext = ".ogg"
 	}
 
 	finalName := path.Join(outputDir, track.Name+ext)
@@ -237,6 +245,13 @@ func downloadFile(downloadLink string, track Track, outputDir string) (string, e
 	_, err = io.Copy(outFile, resp.Body)
 	if err != nil {
 		return "", errors.New("Failed to copy the file from body to out file somehow %v")
+	}
+
+	if strings.HasSuffix(finalName, ".mp4") {
+		err := processVideoToAudio(finalName)
+		if err != nil {
+			fmt.Println("Error:", err)
+		}
 	}
 
 	return finalName, nil
@@ -357,4 +372,30 @@ func getImageForTrack(track Track, base string) []byte {
 	}
 
 	return imgData
+}
+
+func processVideoToAudio(mp4Path string) error {
+	// 1. Create the new filename by replacing .mp4 with .mp3
+	mp3Path := strings.TrimSuffix(mp4Path, ".mp4") + ".mp3"
+
+	// 2. Run FFmpeg
+	// -i: input
+	// -vn: no video
+	// -y: overwrite mp3 if it already exists
+	cmd := exec.Command("ffmpeg", "-i", mp4Path, "-vn", "-ar", "44100", "-ac", "2", "-b:a", "192k", "-y", mp3Path)
+
+	fmt.Printf("Converting %s to MP3...\n", mp4Path)
+	err := cmd.Run()
+	if err != nil {
+		return fmt.Errorf("conversion failed: %v", err)
+	}
+
+	// 3. Delete the original MP4 file to "replace" it
+	err = os.Remove(mp4Path)
+	if err != nil {
+		return fmt.Errorf("could not delete original mp4: %v", err)
+	}
+
+	fmt.Println("Success! File replaced with MP3.")
+	return nil
 }
