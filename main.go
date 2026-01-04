@@ -1,19 +1,22 @@
 package main
 
 import (
-	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log"
 	"net/http"
 	"os"
+	"os/exec"
 	"path"
+	"slices"
+	"strconv"
 	"strings"
+	"sync"
 
 	"github.com/gocarina/gocsv"
+	"go.senan.xyz/taglib"
 )
-
-const outputDir = "./test-music"
 
 type Track struct {
 	Era            string `csv:"Era"`
@@ -27,12 +30,34 @@ type Track struct {
 	FirstPreview   string `csv:"First Preview"`
 	LeakDate       string `csv:"Leak Date"`
 	OGFileLeakDate string `csv:"OG File Leak Date"`
+	RealLinks      []string
+	OutputFilePath string
 }
 
 func main() {
-	log.Print("starting")
+	if len(os.Args) < 5 {
+		fmt.Println("Usage: ./my-program <output-directory> <tracker-csv-path> <worker-count>")
+		fmt.Println("Example: ./my-program ./test-music /Users/antoni-ostrowski/Desktop/yeat-tracker.csv 20")
+		return
+	}
 
-	tracksFile, err := os.OpenFile("/Users/antoni-ostrowski/Desktop/yeat-tracker.csv", os.O_RDWR|os.O_CREATE, os.ModePerm)
+	outputDir := os.Args[1]
+	trackerPath := os.Args[2]
+	workerCount, workerCountErr := strconv.Atoi(os.Args[3])
+	baseCoverPath := os.Args[4]
+	if workerCountErr != nil {
+		log.Println("Invalid worker count integer")
+		return
+	}
+
+	log.Printf("Starting downloader. Output directory set to: %s\n tracker path set to: %v\n worker count set to: %v\n", outputDir, trackerPath, workerCount)
+
+	err := os.MkdirAll(outputDir, 0755)
+	if err != nil {
+		log.Fatalf("Failed to create output dir %v", err)
+	}
+
+	tracksFile, err := os.OpenFile(trackerPath, os.O_RDWR|os.O_CREATE, os.ModePerm)
 	if err != nil {
 		log.Fatal("failed to open csv file")
 		panic(err)
@@ -42,68 +67,107 @@ func main() {
 
 	defer tracksFile.Close()
 
-	allRows := []*Track{}
+	allRows := []Track{}
 
-	if err := gocsv.UnmarshalFile(tracksFile, &allRows); err != nil { // Load clients from file
+	if err := gocsv.UnmarshalFile(tracksFile, &allRows); err != nil {
 		log.Fatalf("Failed to unmarshal %v", err)
 		panic(err)
 	}
 
+	tracksCh := make(chan Track)
+	var processWg sync.WaitGroup
+
+	// start workers
+	for i := range workerCount {
+		processWg.Add(1)
+
+		go func(id int) {
+			defer processWg.Done()
+
+			for track := range tracksCh {
+				log.Printf("[WORKER %v] processing %v \n", id, track.Name)
+
+				for _, link := range track.RealLinks {
+
+					if _, err := os.Stat(track.OutputFilePath); err == nil {
+						log.Printf("[WORKER %v] File %s already exists, skipping...", id, track.Name)
+						continue
+					}
+
+					downloadLink := createDownloadUrl(link)
+					if len(downloadLink) == 0 {
+						log.Printf("[WORKER %v] No download link found", id)
+						continue
+					}
+
+					log.Printf("[WORKER %v] attempting to download %v \n", id, downloadLink)
+
+					finalName, err := downloadFile(downloadLink, track, outputDir)
+					if err != nil {
+						log.Printf("Failed to download file %v \n", err)
+						continue
+					}
+
+					err = taglib.WriteTags(finalName, map[string][]string{
+						taglib.Album:     {track.Era},
+						taglib.Title:     {track.Name},
+						taglib.Artist:    {"yeat"},
+						"Notes":          {track.Notes},
+						"FileDate":       {track.FileDate},
+						"AvailableLen":   {track.AvailableLen},
+						"Quality":        {track.Quality},
+						"FirstPreview":   {track.FirstPreview},
+						"LeakDate":       {track.LeakDate},
+						"OGFileLeakDate": {track.OGFileLeakDate},
+					}, 0)
+
+					if err != nil {
+						log.Printf("Failed to write metadata %v \n", err)
+						continue
+					}
+
+					imageBytes := getImageForTrack(track, baseCoverPath)
+
+					err = taglib.WriteImage(finalName, imageBytes)
+
+					if err != nil {
+						log.Printf("Failed to embeed image %v \n", err)
+						continue
+					}
+
+					log.Printf("[WORKER %v] successfully downloaded %v \n", id, track.Name)
+
+				}
+
+			}
+
+		}(i)
+
+	}
+
+	// filter junk, then feed the channel
+	slices.Reverse(allRows)
 	for _, track := range allRows {
-		if strings.EqualFold(strings.TrimSpace(track.Links), "Source Needed") {
-			continue
-		}
 
-		links := strings.Fields(track.Links)
-
+		links := getTracksLinks(track)
 		if len(links) == 0 {
 			continue
 		}
 
-		fmt.Printf("Found %d links\n", len(links))
-		for i, link := range links {
-			fmt.Printf("%d: %s\n", i+1, link)
-		}
+		track.OutputFilePath = path.Join(outputDir, track.Name+".mp3")
+
+		track.RealLinks = links
 
 		track.Name = strings.ReplaceAll(track.Name, "\n", " ")
 
-		data, _ := json.MarshalIndent(track, "", "  ")
-		fmt.Println(string(data))
-		fmt.Printf("\n")
-
-		for _, link := range links {
-			downloadLink := createDownloadUrl(link)
-			if len(downloadLink) == 0 {
-				log.Fatalf("No download link found")
-				continue
-			}
-
-			resp, err := http.Get(downloadLink)
-			if err != nil {
-				log.Fatalf("Failed to request the download link %v", err)
-				continue
-			}
-
-			outFile, err := os.Create(path.Join(outputDir, track.Name+".mp3"))
-			if err != nil {
-				log.Fatalf("Failed to create out file %v", err)
-				continue
-			}
-
-			_, err = io.Copy(outFile, resp.Body)
-			if err != nil {
-				log.Fatalf("Failed to copy the file from body to out file somehow %v", err)
-				continue
-			}
-
-			// close after everything
-			// no defer because we are inside loop
-			resp.Body.Close()
-			outFile.Close()
-
-		}
+		trackCopy := track
+		tracksCh <- trackCopy
 
 	}
+
+	close(tracksCh)
+
+	processWg.Wait()
 
 }
 
@@ -111,14 +175,192 @@ func createDownloadUrl(link string) string {
 	var trackId string
 	if len(link) >= 32 {
 		trackId = link[len(link)-32:]
-		fmt.Println(trackId)
 	} else {
 		return ""
 	}
 
 	const baseApiUrl = "https://api.pillows.su"
 	downloadLink := baseApiUrl + "/api/download/" + trackId
-	fmt.Printf("download link? %v \n", downloadLink)
 	return downloadLink
+}
 
+func getTracksLinks(track Track) []string {
+	if strings.EqualFold(strings.TrimSpace(track.Links), "Source Needed") {
+		return []string{}
+	}
+
+	links := strings.Fields(track.Links)
+	links = slices.DeleteFunc(links, func(s string) bool {
+		lowerS := strings.ToLower(strings.TrimSpace(s))
+
+		// 1. If it's NOT from pillows.su, delete it.
+		if !strings.Contains(lowerS, "pillows.su") {
+			return true
+		}
+
+		// 2. If it explicitly ends in .jpg, delete it.
+		if strings.HasSuffix(lowerS, ".jpg") {
+			return true
+		}
+
+		// Otherwise, keep it (these are your /api/download/ID links)
+		return false
+	})
+
+	return links
+}
+
+func downloadFile(downloadLink string, track Track, outputDir string) (string, error) {
+	resp, err := http.Get(downloadLink)
+	if err != nil {
+		return "", errors.New("Failed to request the download link %v")
+	}
+
+	defer resp.Body.Close()
+
+	ext := ".mp3"
+	contentType := resp.Header.Get("Content-Type")
+
+	if strings.Contains(contentType, "video/mp4") || strings.Contains(contentType, "audio/mp4") {
+		ext = ".mp4"
+	} else if strings.Contains(contentType, "audio/x-m4a") || strings.Contains(contentType, "audio/m4a") {
+		ext = ".m4a"
+	} else if strings.Contains(contentType, "audio/wav") || strings.Contains(contentType, "audio/x-wav") {
+		ext = ".wav"
+	} else if strings.Contains(contentType, "audio/flac") || strings.Contains(contentType, "audio/x-flac") {
+		ext = ".flac"
+	} else if strings.Contains(contentType, "audio/mpeg") {
+		ext = ".mp3"
+	} else if strings.Contains(contentType, "audio/ogg") {
+		ext = ".ogg"
+	}
+
+	finalName := path.Join(outputDir, track.Name+ext)
+	fmt.Printf("Saving as:%v\n", finalName)
+
+	outFile, err := os.Create(finalName)
+	if err != nil {
+		return "", errors.New("Failed to create out file %v")
+	}
+	defer outFile.Close()
+
+	_, err = io.Copy(outFile, resp.Body)
+	if err != nil {
+		return "", errors.New("Failed to copy the file from body to out file somehow %v")
+	}
+
+	if strings.HasSuffix(finalName, ".mp4") {
+		err := processVideoToAudio(finalName)
+		if err == nil {
+			finalName = strings.TrimSuffix(finalName, ".mp4") + ".mp3"
+		} else {
+			fmt.Println("Error:", err)
+		}
+	}
+
+	return finalName, nil
+
+}
+
+func getImageForTrack(track Track, base string) []byte {
+	var imagePath string
+	era := strings.TrimSpace(track.Era)
+
+	switch era {
+	case "530":
+		imagePath = base + "530.png"
+	case "1500":
+		imagePath = base + "1500.jpg"
+	case "Super Sonic":
+		imagePath = base + "super-sonic.jpg"
+	case "Deep Blue $trips":
+		imagePath = base + "deep-blue-strips.jpg"
+	case "Wake Up Call":
+		imagePath = base + "wake-up-call.jpg"
+	case "Elegance":
+		imagePath = base + "elegance.jpg"
+	case "Different Creature":
+		imagePath = base + "diff-creature.png"
+	case "I'm So Me":
+		imagePath = base + "im-so-me.png"
+	case "We Us":
+		imagePath = base + "we-us.jpg"
+	case "DC2":
+		imagePath = base + "diff-creature-2.jpg"
+	case "Hold Ön":
+		imagePath = base + "hold-on.jpg"
+	case "Alivë":
+		imagePath = base + "alive.png"
+	case "4L with us":
+		imagePath = base + "4l-with-us.png"
+	case "4L":
+		imagePath = base + "4l.png"
+	case "Up 2 Më [V1]":
+		imagePath = base + "up2me1.jpg"
+	case "Trëndi":
+		imagePath = base + "trendi.png"
+	case "Up 2 Më [V3]":
+		imagePath = base + "up2me3.png"
+	case "2 Alivë":
+		imagePath = base + "2alive.jpg"
+	case "Super geëky":
+		imagePath = base + "super-geeky.jpg"
+	case "2 Alivë (Geëk Pack)":
+		imagePath = base + "2alive-geep-pack.jpg"
+	case "Lyfë":
+		imagePath = base + "lyfe.jpg"
+	case "AftërLyfe":
+		imagePath = base + "afterlyfe.jpg"
+	case "AftërLyfe (Deluxe)":
+		imagePath = base + "afterlyfe-deluxe.jpg"
+	case "Lyfëstyle [V1]":
+		imagePath = base + "lyfestyle1.jpg"
+	case "2093":
+		imagePath = base + "2093.png"
+	case "LYFESTYLE [V2]":
+		imagePath = base + "lyfestyle2.png"
+	case "LYFESTYLE DIGITAL DELUXE":
+		imagePath = base + "lyfestyle2-deluxe.png"
+	case "DANGEROUS SUMMER":
+		imagePath = base + "ds.jpg"
+	// Grouped case for ADL versions
+	case "A DANGEROUS LYFE [V1]", "A DANGEROUS LYFE [V2]", "A DANGEROUS LYFE [V3]", "A DANGEROUS LYFE [V4]":
+		imagePath = base + "adl.jpg"
+	default:
+		imagePath = "assets/images/eras/default_yeat_tracker_cover.jpg"
+	}
+
+	imgData, err := os.ReadFile(imagePath)
+	if err != nil {
+		log.Printf("Warning: Could not read image for era %s at path %s: %v\n", era, imagePath, err)
+		return []byte{}
+	}
+
+	return imgData
+}
+
+func processVideoToAudio(mp4Path string) error {
+	// 1. Create the new filename by replacing .mp4 with .mp3
+	mp3Path := strings.TrimSuffix(mp4Path, ".mp4") + ".mp3"
+
+	// 2. Run FFmpeg
+	// -i: input
+	// -vn: no video
+	// -y: overwrite mp3 if it already exists
+	cmd := exec.Command("ffmpeg", "-i", mp4Path, "-vn", "-ar", "44100", "-ac", "2", "-b:a", "192k", "-y", mp3Path)
+
+	fmt.Printf("Converting %s to MP3...\n", mp4Path)
+	err := cmd.Run()
+	if err != nil {
+		return fmt.Errorf("conversion failed: %v", err)
+	}
+
+	// 3. Delete the original MP4 file to "replace" it
+	err = os.Remove(mp4Path)
+	if err != nil {
+		return fmt.Errorf("could not delete original mp4: %v", err)
+	}
+
+	fmt.Println("Success! File replaced with MP3.")
+	return nil
 }
