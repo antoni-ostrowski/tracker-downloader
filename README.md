@@ -5,8 +5,9 @@
 
  # example
  # keep the worker count under 20
+ # for covers to work, its required to use the covers dir from repo
  ./tracker-downloader /Users/antoni-ostrowski/Desktop/new-music /Users/antoni-ostrowski/Desktop/yeat-tracker.csv 20 ./covers
 
 ```
 
-Script parses csv, downloads the files (coverts mp4s to mp3s if needed) and attaches metadata like album cover or album.
+Script parses csv, downloads the files (coverts mp4s to mp3s if needed) and attaches metadata like album cover or album. If file already exists, it gets skipped.
