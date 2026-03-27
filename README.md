@@ -9,4 +9,4 @@
 
 ```
 
-Script parses csv, downloads the files (coverts mp4s to mp3s if needed) and attaches metadata like album cover or album.
+Script parses csv, downloads the files (coverts mp4s to mp3s if needed) and attaches metadata like album cover or album. If file already exists, it gets skipped.
