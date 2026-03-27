@@ -20,7 +20,7 @@ import (
 
 type Track struct {
 	Era            string `csv:"Era"`
-	Name           string `csv:"Name\n(Check out the Tracker website!)"`
+	Name           string `csv:"Name\n(Check out the Tracker website! (Currently down))"`
 	Notes          string `csv:"Notes\n(Join the Yeat Tracker Discord!)"`
 	FileDate       string `csv:"File Date"`
 	Type           string `csv:"Type"`
@@ -73,6 +73,8 @@ func main() {
 		log.Fatalf("Failed to unmarshal %v", err)
 		panic(err)
 	}
+
+	log.Println("track amount: ", len(allRows))
 
 	tracksCh := make(chan Track)
 	var processWg sync.WaitGroup
@@ -263,77 +265,15 @@ func downloadFile(downloadLink string, track Track, outputDir string) (string, e
 }
 
 func getImageForTrack(track Track, base string) []byte {
-	var imagePath string
 	era := strings.TrimSpace(track.Era)
-
-	switch era {
-	case "530":
-		imagePath = base + "530.png"
-	case "1500":
-		imagePath = base + "1500.jpg"
-	case "Super Sonic":
-		imagePath = base + "super-sonic.jpg"
-	case "Deep Blue $trips":
-		imagePath = base + "deep-blue-strips.jpg"
-	case "Wake Up Call":
-		imagePath = base + "wake-up-call.jpg"
-	case "Elegance":
-		imagePath = base + "elegance.jpg"
-	case "Different Creature":
-		imagePath = base + "diff-creature.png"
-	case "I'm So Me":
-		imagePath = base + "im-so-me.png"
-	case "We Us":
-		imagePath = base + "we-us.jpg"
-	case "DC2":
-		imagePath = base + "diff-creature-2.jpg"
-	case "Hold Ön":
-		imagePath = base + "hold-on.jpg"
-	case "Alivë":
-		imagePath = base + "alive.png"
-	case "4L with us":
-		imagePath = base + "4l-with-us.png"
-	case "4L":
-		imagePath = base + "4l.png"
-	case "Up 2 Më [V1]":
-		imagePath = base + "up2me1.jpg"
-	case "Trëndi":
-		imagePath = base + "trendi.png"
-	case "Up 2 Më [V3]":
-		imagePath = base + "up2me3.png"
-	case "2 Alivë":
-		imagePath = base + "2alive.jpg"
-	case "Super geëky":
-		imagePath = base + "super-geeky.jpg"
-	case "2 Alivë (Geëk Pack)":
-		imagePath = base + "2alive-geep-pack.jpg"
-	case "Lyfë":
-		imagePath = base + "lyfe.jpg"
-	case "AftërLyfe":
-		imagePath = base + "afterlyfe.jpg"
-	case "AftërLyfe (Deluxe)":
-		imagePath = base + "afterlyfe-deluxe.jpg"
-	case "Lyfëstyle [V1]":
-		imagePath = base + "lyfestyle1.jpg"
-	case "2093":
-		imagePath = base + "2093.png"
-	case "LYFESTYLE [V2]":
-		imagePath = base + "lyfestyle2.png"
-	case "LYFESTYLE DIGITAL DELUXE":
-		imagePath = base + "lyfestyle2-deluxe.png"
-	case "DANGEROUS SUMMER":
-		imagePath = base + "ds.jpg"
-	// Grouped case for ADL versions
-	case "A DANGEROUS LYFE [V1]", "A DANGEROUS LYFE [V2]", "A DANGEROUS LYFE [V3]", "A DANGEROUS LYFE [V4]":
-		imagePath = base + "adl.jpg"
-	default:
-		imagePath = "assets/images/eras/default_yeat_tracker_cover.jpg"
-	}
+	imagePath := path.Join(base, era+".jpg")
 
 	imgData, err := os.ReadFile(imagePath)
 	if err != nil {
-		log.Printf("Warning: Could not read image for era %s at path %s: %v\n", era, imagePath, err)
-		return []byte{}
+		imgData, err = os.ReadFile(path.Join(base, "default.jpg"))
+		if err != nil {
+			return []byte{}
+		}
 	}
 
 	return imgData

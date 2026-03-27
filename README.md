@@ -5,7 +5,7 @@
 
  # example
  # keep the worker count under 20
- ./tracker-downloader /Users/antoni-ostrowski/Desktop/new-music /Users/antoni-ostrowski/Desktop/yeat-tracker.csv 20 ./covers
+ ./tracker-downloader /Users/antoni-ostrowski/Desktop/new-music /Users/antoni-ostrowski/Desktop/yeat-tracker.csv 20 ./covers/
 
 ```
 
