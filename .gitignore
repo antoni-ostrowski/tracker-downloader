@@ -25,3 +25,4 @@ vendor/
 *.swp
 
 output
+tracker-downloader

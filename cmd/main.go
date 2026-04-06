@@ -2,6 +2,7 @@ package main
 
 import (
 	"errors"
+	"flag"
 	"fmt"
 	"io"
 	"log"
@@ -10,7 +11,6 @@ import (
 	"os/exec"
 	"path"
 	"slices"
-	"strconv"
 	"strings"
 	"sync"
 
@@ -35,20 +35,18 @@ type Track struct {
 }
 
 func main() {
-	if len(os.Args) < 5 {
-		fmt.Println("Usage: ./my-program <output-directory> <tracker-csv-path> <worker-count>")
-		fmt.Println("Example: ./my-program ./test-music /Users/antoni-ostrowski/Desktop/yeat-tracker.csv 20")
-		return
-	}
 
-	outputDir := os.Args[1]
-	trackerPath := os.Args[2]
-	workerCount, workerCountErr := strconv.Atoi(os.Args[3])
-	baseCoverPath := os.Args[4]
-	if workerCountErr != nil {
-		log.Println("Invalid worker count integer")
-		return
-	}
+	outputDirPtr := flag.String("o", "", "output: directory for downloaded files")
+	trackerPathPtr := flag.String("i", "", "input: tracker csv file path")
+	workerCountPtr := flag.Int("w", 5, "opt: worker count")
+	baseCoverPathPtr := flag.String("c", "", "opt: cover dir path")
+
+	flag.Parse()
+
+	outputDir := *outputDirPtr
+	trackerPath := *trackerPathPtr
+	workerCount := *workerCountPtr
+	baseCoverPath := *baseCoverPathPtr
 
 	log.Printf("Starting downloader. Output directory set to: %s\n tracker path set to: %v\n worker count set to: %v\n", outputDir, trackerPath, workerCount)
 
