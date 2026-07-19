@@ -20,8 +20,8 @@ import (
 
 type Track struct {
 	Era            string `csv:"Era"`
-	Name           string `csv:"Name\n(Check out the Tracker website! (Currently down))"`
-	Notes          string `csv:"Notes\n(Join the Yeat Tracker Discord!)"`
+	Name           string `csv:"Name"`
+	Notes          string `csv:"Notes\n(Join the Yeat Hub Discord!)"`
 	FileDate       string `csv:"File Date"`
 	Type           string `csv:"Type"`
 	AvailableLen   string `csv:"Available Length"`
